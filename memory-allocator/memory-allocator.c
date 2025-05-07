@@ -29,7 +29,7 @@ void chunk_list_insert(Chunk_List* list, void* start, size_t size) {
 	list->chunks[list->count].start = start;
 	list->chunks[list->count].size = size;
 
-	printf("[INSERT] Adding chunk: Start = %p, Size = %zu bytes\n", start, size);
+	//printf("[INSERT] Adding chunk: Start = %p, Size = %zu bytes\n", start, size);
 
 	for (size_t i = list->count; i > 0 && list->chunks[i].start < list->chunks[i - 1].start; --i) {
 		Chunk t = list->chunks[i];
@@ -40,27 +40,31 @@ void chunk_list_insert(Chunk_List* list, void* start, size_t size) {
 	list->count += 1;
 }
 
-void chunk_list_merge(Chunk_List* dst, Chunk_List* src) {
-	dst->count = 0;
-	for (size_t i = 0; i < src->count; i++) {
-		const Chunk chunk = src->chunks[i];
-		if (dst->count > 0) {
-			Chunk* top_chunk = &dst->chunks[dst->count - 1];
-			if ((size_t)top_chunk->start + top_chunk->size == (size_t)chunk.start) {
+void chunk_list_merge(Chunk_List* merged_list, Chunk_List* freed_chunks_list) {
+	merged_list->count = 0;
 
-				// merge adjacent chunks
-				top_chunk->size += chunk.size;
-				printf("[MERGE] Merged chunk with previous: New size = %zu bytes\n", top_chunk->size);
+	for (size_t i = 0; i < freed_chunks_list->count; i++) {
+		const Chunk current_chunk = freed_chunks_list->chunks[i];
+
+		if (merged_list->count > 0) {
+			Chunk* last_chunk_in_merged = &merged_list->chunks[merged_list->count - 1];
+
+			// If current chunk is adjacent to the last one, merge them
+			if ((size_t)last_chunk_in_merged->start + last_chunk_in_merged->size == (size_t)current_chunk.start) {
+				last_chunk_in_merged->size += current_chunk.size;
+			//	printf("[MERGE] Merged with previous: New size = %zu bytes\n", last_chunk_in_merged->size);
 			}
 			else {
-				chunk_list_insert(dst, chunk.start, chunk.size);
+				chunk_list_insert(merged_list, current_chunk.start, current_chunk.size);
 			}
 		}
 		else {
-			chunk_list_insert(dst, chunk.start, chunk.size);
+			chunk_list_insert(merged_list, current_chunk.start, current_chunk.size);
 		}
 	}
 }
+
+
 
 void chunk_list_dump(const Chunk_List* list) {
 	printf("Chunks (Total: %zu):\n", list->count);
@@ -81,7 +85,7 @@ int chunk_list_find(const Chunk_List* list, void* ptr) {
 void chunk_list_remove(Chunk_List* list, size_t index) {
 	assert(index < list->count);
 
-	printf("[REMOVE] Removing chunk: Start = %p, Size = %zu bytes\n", list->chunks[index].start, list->chunks[index].size);
+	//printf("[REMOVE] Removing chunk from allocated_chunks: Start = %p, Size = %zu bytes\n", list->chunks[index].start, list->chunks[index].size);
 	for (size_t i = index; i < list->count - 1; ++i) {
 		list->chunks[i] = list->chunks[i + 1];
 	}
@@ -101,12 +105,11 @@ Chunk_List freed_chunks = {
 	},
 };
 
-size_t heap_allocated_size = 0;
-
 Chunk_List tmp_chunks = { 0 };
 
 void* heap_alloc(size_t size) {
-	if (size > 0) {
+	if (size > 0)
+	{
 		chunk_list_merge(&tmp_chunks, &freed_chunks);
 		freed_chunks = tmp_chunks;
 		for (size_t i = 0; i < freed_chunks.count; ++i) {
@@ -116,11 +119,11 @@ void* heap_alloc(size_t size) {
 				const size_t tail_size = chunk.size - size;
 				chunk_list_insert(&allocated_chunks, chunk.start, size);
 
-				printf("[ALLOC] Allocated chunk: Start = %p, Size = %zu bytes\n", chunk.start, size);
+				//printf("[ALLOC] Allocated chunk: Start = %p, Size = %zu bytes\n", chunk.start, size);
 
 				if (tail_size > 0) {
 					chunk_list_insert(&freed_chunks, chunk.start + size, tail_size);
-					printf("[ALLOC] Remaining freed chunk: Start = %p, Size = %zu bytes\n", chunk.start + size, tail_size);
+					//printf("[ALLOC] Remaining freed chunk: Start = %p, Size = %zu bytes\n", chunk.start + size, tail_size);
 				}
 				return chunk.start;
 			}
@@ -140,7 +143,7 @@ void heap_free(void* ptr) {
 			allocated_chunks.chunks[index].start,
 			allocated_chunks.chunks[index].size);
 
-		printf("[FREE] Freed chunk: Start = %p, Size = %zu bytes\n", ptr, allocated_chunks.chunks[index].size);
+		//printf("[FREE] release memory to freed_chunks, de-allocate chunk: Start = %p, Size = %zu bytes\n", ptr, allocated_chunks.chunks[index].size);
 
 		chunk_list_remove(&allocated_chunks, (size_t)index);
 
@@ -154,29 +157,29 @@ void* ptrs[N] = { 0 };
 
 int main() {
 
-	//for (size_t i = 0; i < N; ++i) {
-	//	ptrs[i] = heap_alloc(i);
-	//}
+	for (size_t i = 0; i < N; ++i) {
+		ptrs[i] = heap_alloc(i);
+	}
 
-
-	//for (size_t i = 0; i < N; ++i) {
-	//	if (i % 2 == 0) {
-	//		heap_free(ptrs[i]);
-	//	}
-	//}
-	//chunk_list_dump(&allocated_chunks);
-	//chunk_list_dump(&freed_chunks);
+	// test fragmentaiton
+	for (size_t i = 0; i < N; ++i) {
+		if (i % 2 == 0) {
+			heap_free(ptrs[i]);
+		}
+	}
+	chunk_list_dump(&allocated_chunks);
+	chunk_list_dump(&freed_chunks);
 
 
 	// test merging
-	void* a = heap_alloc(16);
-	void* b = heap_alloc(16);
+	//void* a = heap_alloc(16);
+	//void* b = heap_alloc(16);
 
-	chunk_list_dump(&allocated_chunks);
+	//chunk_list_dump(&allocated_chunks);
 
-	heap_free(a);
-	heap_free(b);
+	//heap_free(a);
+	//heap_free(b);
 
-	chunk_list_dump(&freed_chunks);
+	//chunk_list_dump(&freed_chunks);
 
 }
