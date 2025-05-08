@@ -49,7 +49,7 @@ void chunk_list_insert(Chunk_List* list, void* start, size_t size) {
 
 	for (size_t i = list->count; i > 0 && list->chunks[i].start < list->chunks[i - 1].start; --i) {
 		Chunk t = list->chunks[i];
-		list->chunks[i] = list->chunks[i - 1];	
+		list->chunks[i] = list->chunks[i - 1];
 		list->chunks[i - 1] = t;
 	}
 
@@ -103,6 +103,7 @@ int chunk_list_find(const Chunk_List* list, void* ptr) {
 
 void chunk_list_remove(Chunk_List* list, size_t index) {
 	assert(index < list->count);
+
 	printf("[REMOVE] Removing free chunk from list: Start = %p, Size = %zu bytes\n", list->chunks[index].start, list->chunks[index].size);
 
 	for (size_t i = index; i < list->count - 1; ++i) {
@@ -111,6 +112,7 @@ void chunk_list_remove(Chunk_List* list, size_t index) {
 
 	list->count -= 1;
 }
+
 
 void* heap_alloc(size_t size) {
 	if (size == 0) {
@@ -128,7 +130,6 @@ void* heap_alloc(size_t size) {
 	for (size_t i = 0; i < freed_chunks.count; ++i) {
 		const Chunk chunk = freed_chunks.chunks[i];
 
-		
 		if (chunk.size >= total_size) {
 			void* allocated_block_start = freed_chunks.chunks[i].start;
 			size_t allocated_size = total_size;
@@ -137,7 +138,7 @@ void* heap_alloc(size_t size) {
 			size_t* header = (size_t*)allocated_block_start;
 			*header = size;
 
-			void* ptr = (char*)allocated_block_start + HEADER_SIZE; 
+			void* ptr = (char*)allocated_block_start + HEADER_SIZE;
 
 			const size_t remaining_space = chunk.size - total_size;
 
@@ -157,7 +158,7 @@ void* heap_alloc(size_t size) {
 void heap_free(void* ptr) {
 	if (ptr != NULL) {
 		void* chunk_start = (uint8_t*)ptr - HEADER_SIZE;
-		size_t chunk_size = *(size_t*)chunk_start;
+		size_t chunk_size = *(size_t*)chunk_start + HEADER_SIZE;
 
 		printf("[FREE] Freeing chunk: Start = %p, Size = %zu bytes\n", chunk_start, chunk_size);
 
@@ -170,25 +171,14 @@ void heap_free(void* ptr) {
 }
 
 int main() {
-	void* ptrs[10];
-	printf("--- Initial Allocations ---\n");
-	for (int i = 0; i < 5; ++i) {
-		ptrs[i] = heap_alloc(i + 1);
-	}
+	void* ptrs[3];
+	ptrs[0] = heap_alloc(1);
+	ptrs[1] = heap_alloc(2);
+	ptrs[2] = heap_alloc(3);
 
-	printf("\n--- Freeing Non-Consecutive Blocks ---\n");
+	heap_free(ptrs[0]);
 	heap_free(ptrs[1]);
-	heap_free(ptrs[3]);
 
-	printf("\n--- Free Chunks After Freeing ---\n");
-	chunk_list_dump(&freed_chunks);
-
-	printf("\n--- Subsequent Allocations ---\n");
-	for (int i = 5; i < 10; ++i) {
-		ptrs[i] = heap_alloc(i + 1);
-	}
-
-	printf("\n--- Final Free Chunks ---\n");
 	chunk_list_dump(&freed_chunks);
 
 	return 0;
