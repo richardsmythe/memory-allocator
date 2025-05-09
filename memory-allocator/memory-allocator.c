@@ -45,8 +45,7 @@ void chunk_list_insert(Chunk_List* list, void* start, size_t size) {
 	list->chunks[list->count].start = start;
 	list->chunks[list->count].size = size;
 
-	printf("[INSERT] Inserting free chunk: Start = %p, Size = %zu bytes\n", start, size);
-
+	// Sorting the chunks based on the starting address
 	for (size_t i = list->count; i > 0 && list->chunks[i].start < list->chunks[i - 1].start; --i) {
 		Chunk t = list->chunks[i];
 		list->chunks[i] = list->chunks[i - 1];
@@ -58,65 +57,56 @@ void chunk_list_insert(Chunk_List* list, void* start, size_t size) {
 
 void chunk_list_merge(Chunk_List* merged_list, Chunk_List* freed_chunks_list) {
 	merged_list->count = 0;
-	printf("[MERGE] Merging freed chunks...\n");
+	size_t merged = 0;
 
 	for (size_t i = 0; i < freed_chunks_list->count; i++) {
 		const Chunk current_chunk = freed_chunks_list->chunks[i];
-		printf("[MERGE] Processing chunk: Start = %p, Size = %zu bytes\n", current_chunk.start, current_chunk.size);
 
 		if (merged_list->count > 0) {
-			Chunk* last_chunk_in_merged = &merged_list->chunks[merged_list->count - 1];
+			Chunk* last_chunk_in_merged_list = &merged_list->chunks[merged_list->count - 1];
 
-			if ((size_t)last_chunk_in_merged->start + last_chunk_in_merged->size == (size_t)current_chunk.start) {
-				last_chunk_in_merged->size += current_chunk.size;
-				printf("[MERGE] Merged with previous: New size = %zu bytes\n", last_chunk_in_merged->size);
+			// if they are adjacent, it merges them by increasing the size of the previous chunk.
+			if ((size_t)last_chunk_in_merged_list->start + last_chunk_in_merged_list->size == (size_t)current_chunk.start) {
+				last_chunk_in_merged_list->size += current_chunk.size;
+				++merged;
 			}
 			else {
+				
 				chunk_list_insert(merged_list, current_chunk.start, current_chunk.size);
 			}
 		}
 		else {
+			// insert first chunk, if merged_list is empty
 			chunk_list_insert(merged_list, current_chunk.start, current_chunk.size);
 		}
 	}
 
-	printf("[MERGE] Merging complete. Total chunks: %zu\n", merged_list->count);
-}
-
-void chunk_list_dump(const Chunk_List* list) {
-	printf("Chunks (Total: %zu):\n", list->count);
-	for (size_t i = 0; i < list->count; ++i) {
-		printf("[DUMP] Chunk %zu: Start = %p, Size = %zu bytes\n", i, list->chunks[i].start, list->chunks[i].size);
+	if (merged > 0) {
+		printf("[MERGE] Coalesced %zu adjacent chunk%s. Total free chunks: %zu\n",
+			merged, merged > 1 ? "s" : "", merged_list->count);
 	}
 }
 
 int chunk_list_find(const Chunk_List* list, void* ptr) {
 	for (size_t i = 0; i < list->count; ++i) {
 		if (list->chunks[i].start == ptr) {
-			printf("[FIND] Found chunk at index %zu: Start = %p\n", i, ptr);
 			return (int)i;
 		}
 	}
-	printf("[FIND] Chunk not found for pointer: %p\n", ptr);
 	return -1;
 }
 
 void chunk_list_remove(Chunk_List* list, size_t index) {
 	assert(index < list->count);
-
-	printf("[REMOVE] Removing free chunk from list: Start = %p, Size = %zu bytes\n", list->chunks[index].start, list->chunks[index].size);
-
 	for (size_t i = index; i < list->count - 1; ++i) {
 		list->chunks[i] = list->chunks[i + 1];
 	}
-
 	list->count -= 1;
 }
 
-
 void* heap_alloc(size_t size) {
 	if (size == 0) {
-		printf("[ALLOC] Cannot allocate 0 bytes\n");
+		printf("[ALLOC] Failed: Cannot allocate 0 bytes\n");
 		return NULL;
 	}
 
@@ -125,33 +115,32 @@ void* heap_alloc(size_t size) {
 	tmp_chunks.count = 0;
 
 	const size_t total_size = size + HEADER_SIZE;
-	printf("[ALLOC] Attempting to allocate %zu bytes (including header)\n", total_size);
 
 	for (size_t i = 0; i < freed_chunks.count; ++i) {
 		const Chunk chunk = freed_chunks.chunks[i];
 
 		if (chunk.size >= total_size) {
-			void* allocated_block_start = freed_chunks.chunks[i].start;
-			size_t allocated_size = total_size;
+			void* allocated_block_start = chunk.start;
 			chunk_list_remove(&freed_chunks, i);
 
 			size_t* header = (size_t*)allocated_block_start;
 			*header = size;
 
 			void* ptr = (char*)allocated_block_start + HEADER_SIZE;
-
-			const size_t remaining_space = chunk.size - total_size;
+			size_t remaining_space = chunk.size - total_size;
 
 			if (remaining_space > 0) {
 				void* unused_chunk_start = (char*)allocated_block_start + total_size;
 				chunk_list_insert(&freed_chunks, unused_chunk_start, remaining_space);
 			}
 
-			printf("[ALLOC] Successfully allocated %zu bytes at %p\n", size, ptr);
+			printf("[ALLOC] %zu bytes allocated at %p (raw: %p). Remaining in chunk: %zu bytes\n",
+				size, ptr, allocated_block_start, remaining_space);
 			return ptr;
 		}
 	}
-	printf("[ALLOC] Failed to allocate %zu bytes: Not enough memory\n", size);
+
+	printf("[ALLOC] Failed: Not enough memory for %zu bytes\n", size);
 	return NULL;
 }
 
@@ -160,26 +149,35 @@ void heap_free(void* ptr) {
 		void* chunk_start = (uint8_t*)ptr - HEADER_SIZE;
 		size_t chunk_size = *(size_t*)chunk_start + HEADER_SIZE;
 
-		printf("[FREE] Freeing chunk: Start = %p, Size = %zu bytes\n", chunk_start, chunk_size);
-
 		chunk_list_insert(&freed_chunks, chunk_start, chunk_size);
 
 		chunk_list_merge(&tmp_chunks, &freed_chunks);
 		freed_chunks = tmp_chunks;
 		tmp_chunks.count = 0;
+
+		printf("[FREE] Freed %zu bytes at %p (raw: %p)\n", chunk_size - HEADER_SIZE, ptr, chunk_start);
 	}
+}
+
+void chunk_list_dump(const Chunk_List* list) {
+	printf("======== Free List Dump (Total: %zu) ========\n", list->count);
+	for (size_t i = 0; i < list->count; ++i) {
+		printf("  Chunk %zu: Start = %p, Size = %zu bytes\n", i, list->chunks[i].start, list->chunks[i].size);
+	}
+	printf("=============================================\n");
 }
 
 int main() {
 	void* ptrs[3];
 	ptrs[0] = heap_alloc(1);
 	ptrs[1] = heap_alloc(2);
-	ptrs[2] = heap_alloc(3);
+	//ptrs[2] = heap_alloc(3);
 
 	heap_free(ptrs[0]);
 	heap_free(ptrs[1]);
+	//heap_free(ptrs[2]);
+
 
 	chunk_list_dump(&freed_chunks);
-
 	return 0;
 }
