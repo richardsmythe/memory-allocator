@@ -170,46 +170,46 @@ void chunk_list_dump(const Chunk_List* list) {
 void* heap_realloc(void* ptr, size_t new_size) {
 	if (ptr == NULL) return heap_alloc(new_size);
 	if (new_size == 0) {
-		heap_free(ptr);
+		heap_free(ptr);  
 		return NULL;
 	}
 
 	void* current_chunk_start = (uint8_t*)ptr - HEADER_SIZE;
-	size_t old_size = *(uint8_t*)current_chunk_start;
+	size_t old_size = *(size_t*)current_chunk_start;
 
+	// try to shrink the block in place if new size is smaller
 	if (new_size <= old_size) {
-		// shrink in place
 		size_t* header = (size_t*)current_chunk_start;
 		*header = new_size;
 		size_t remaining_space = old_size - new_size;
+
 		if (remaining_space > 0) {
-			// add to free list
+			// if there is remaining space after, add to the free list
 			void* new_free_chunk_start = (char*)current_chunk_start + HEADER_SIZE + new_size;
 			chunk_list_insert(&freed_chunks, new_free_chunk_start, remaining_space);
-
 			printf("[REALLOC] Shrunk block at %p, Remaining free space: %zu bytes\n", ptr, remaining_space);
 		}
 		return ptr;
-
 	}
+
+	// or expanding the block
 	else if (new_size > old_size) {
-		// expand memory block or allocate new block. 
-		void* current_chunk_end = (char*)current_chunk_start + HEADER_SIZE + new_size;
+		void* current_chunk_end = (char*)current_chunk_start + HEADER_SIZE + old_size;
+
+		// need to check if next chunk is adjacent and large enough to expand in place
 		for (size_t i = 0; i < freed_chunks.count; i++) {
 			const Chunk next_chunk = freed_chunks.chunks[i];
-
 			if (next_chunk.start == current_chunk_end) {
 				size_t combined_size = old_size + HEADER_SIZE + next_chunk.size;
-
 				if (combined_size >= new_size + HEADER_SIZE) {
-					// can expand in place
+					// ok to expand in place, remove the free chunk, and update the header
 					size_t amount_needed = new_size - old_size;
 					chunk_list_remove(&freed_chunks, i);
 
 					size_t* header = (size_t*)current_chunk_start;
 					*header = new_size;
 
-					// if left over after expanding
+					// deal with any leftover space after expanding, add it to the free list
 					size_t leftover_after_expanding = combined_size - (new_size + HEADER_SIZE);
 					if (leftover_after_expanding > 0) {
 						void* new_free_start = (char*)current_chunk_start + HEADER_SIZE + new_size;
@@ -218,27 +218,35 @@ void* heap_realloc(void* ptr, size_t new_size) {
 					printf("[REALLOC] Expanded block at %p to %zu bytes\n", ptr, new_size);
 					return ptr;
 				}
-
 			}
 		}
-		// if not able to expand in place, allocate new block
+
+		// if expansion in place is not possible, allocate a new block
 		void* new_ptr = heap_alloc(new_size);
 		if (new_ptr != NULL) {
-			memcpy(new_ptr, ptr, old_size); // preserves the original data
+			// TODO: write my own memcopy
+			memcpy(new_ptr, ptr, old_size);
 			heap_free(ptr);
 			printf("[REALLOC] Moved block from %p to %p, size increased to %zu bytes\n", ptr, new_ptr, new_size);
 		}
 		return new_ptr;
 	}
-
+	return NULL;
 }
 
-int main() {
 
+int main() {
 	printf("\n--- Allocate and Shrink ---\n");
 	void* ptr1 = heap_alloc(100);
 	ptr1 = heap_realloc(ptr1, 50);
 	assert(ptr1 != NULL);
+	chunk_list_dump(&freed_chunks);
+
+	printf("\n--- Allocate and Expand ---\n");
+	void* ptr2 = heap_alloc(50);
+	assert(ptr2 != NULL);
+	ptr2 = heap_realloc(ptr2, 100);
+	assert(ptr2 != NULL);
 	chunk_list_dump(&freed_chunks);
 
 	return 0;
