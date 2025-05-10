@@ -71,7 +71,7 @@ void chunk_list_merge(Chunk_List* merged_list, Chunk_List* freed_chunks_list) {
 				++merged;
 			}
 			else {
-				
+
 				chunk_list_insert(merged_list, current_chunk.start, current_chunk.size);
 			}
 		}
@@ -167,17 +167,80 @@ void chunk_list_dump(const Chunk_List* list) {
 	printf("=============================================\n");
 }
 
+void* heap_realloc(void* ptr, size_t new_size) {
+	if (ptr == NULL) return heap_alloc(new_size);
+	if (new_size == 0) {
+		heap_free(ptr);
+		return NULL;
+	}
+
+	void* current_chunk_start = (uint8_t*)ptr - HEADER_SIZE;
+	size_t old_size = *(uint8_t*)current_chunk_start;
+
+	if (new_size <= old_size) {
+		// shrink in place
+		size_t* header = (size_t*)current_chunk_start;
+		*header = new_size;
+		size_t remaining_space = old_size - new_size;
+		if (remaining_space > 0) {
+			// add to free list
+			void* new_free_chunk_start = (char*)current_chunk_start + HEADER_SIZE + new_size;
+			chunk_list_insert(&freed_chunks, new_free_chunk_start, remaining_space);
+
+			printf("[REALLOC] Shrunk block at %p, Remaining free space: %zu bytes\n", ptr, remaining_space);
+		}
+		return ptr;
+
+	}
+	else if (new_size > old_size) {
+		// expand memory block or allocate new block. 
+		void* current_chunk_end = (char*)current_chunk_start + HEADER_SIZE + new_size;
+		for (size_t i = 0; i < freed_chunks.count; i++) {
+			const Chunk next_chunk = freed_chunks.chunks[i];
+
+			if (next_chunk.start == current_chunk_end) {
+				size_t combined_size = old_size + HEADER_SIZE + next_chunk.size;
+
+				if (combined_size >= new_size + HEADER_SIZE) {
+					// can expand in place
+					size_t amount_needed = new_size - old_size;
+					chunk_list_remove(&freed_chunks, i);
+
+					size_t* header = (size_t*)current_chunk_start;
+					*header = new_size;
+
+					// if left over after expanding
+					size_t leftover_after_expanding = combined_size - (new_size + HEADER_SIZE);
+					if (leftover_after_expanding > 0) {
+						void* new_free_start = (char*)current_chunk_start + HEADER_SIZE + new_size;
+						chunk_list_insert(&freed_chunks, new_free_start, leftover_after_expanding);
+					}
+					printf("[REALLOC] Expanded block at %p to %zu bytes\n", ptr, new_size);
+					return ptr;
+				}
+
+			}
+		}
+		// if not able to expand in place, allocate new block
+		void* new_ptr = heap_alloc(new_size);
+		if (new_ptr != NULL) {
+			memcpy(new_ptr, ptr, old_size); // preserves the original data
+			heap_free(ptr);
+			printf("[REALLOC] Moved block from %p to %p, size increased to %zu bytes\n", ptr, new_ptr, new_size);
+		}
+		return new_ptr;
+	}
+
+}
+
 int main() {
-	void* ptrs[3];
-	ptrs[0] = heap_alloc(1);
-	ptrs[1] = heap_alloc(2);
-	//ptrs[2] = heap_alloc(3);
 
-	heap_free(ptrs[0]);
-	heap_free(ptrs[1]);
-	//heap_free(ptrs[2]);
-
-
+	printf("\n--- Allocate and Shrink ---\n");
+	void* ptr1 = heap_alloc(100);
+	ptr1 = heap_realloc(ptr1, 50);
+	assert(ptr1 != NULL);
 	chunk_list_dump(&freed_chunks);
+
 	return 0;
 }
+
