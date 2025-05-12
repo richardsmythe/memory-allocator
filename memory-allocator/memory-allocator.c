@@ -167,6 +167,17 @@ void chunk_list_dump(const Chunk_List* list) {
 	printf("=============================================\n");
 }
 
+void* copy_contents(void* dest, void* src, size_t size) {
+	unsigned char* d = (unsigned char*)dest;
+	unsigned char* s = (unsigned char*)src;
+	for (size_t i = 0; i < size; i++)
+	{
+		d[i] = s[i];
+	}
+	return dest;
+}
+
+
 void* heap_realloc(void* ptr, size_t new_size) {
 	if (ptr == NULL) return heap_alloc(new_size);
 	if (new_size == 0) {
@@ -224,8 +235,7 @@ void* heap_realloc(void* ptr, size_t new_size) {
 		// if expansion in place is not possible, allocate a new block
 		void* new_ptr = heap_alloc(new_size);
 		if (new_ptr != NULL) {
-			// TODO: write my own memcopy
-			memcpy(new_ptr, ptr, old_size);
+			copy_contents(new_ptr, ptr, old_size);
 			heap_free(ptr);
 			printf("[REALLOC] Moved block from %p to %p, size increased to %zu bytes\n", ptr, new_ptr, new_size);
 		}
